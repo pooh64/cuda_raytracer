@@ -24,14 +24,14 @@ struct Camera {
 		axis_x = normalize(cross(dir, up));
 		axis_y = cross(axis_x, dir);
 
-		axis_x = mul(ratio * fov, axis_x);
-		axis_y = mul(        fov, axis_y);
+		axis_x = (ratio * fov) * axis_x;
+		axis_y =          fov  * axis_y;
 	}
 
 	Ray cast(float x, float y)
 	{
 		return Ray { .pos = pos,
-			     .dir = mul(x, axis_x) + mul(y, axis_y) + dir };
+			     .dir = x * axis_x + y * axis_y + dir };
 	}
 };
 

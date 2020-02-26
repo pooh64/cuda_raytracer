@@ -1,14 +1,16 @@
 #pragma once
 
 #include <cstdint>
+#include <raytracer/floatvec.h>
 
 extern "C" {
 #include <linux/fb.h>
 }
 
 struct Fbuffer : public fb_var_screeninfo, public fb_fix_screeninfo {
-	struct Color {
-		std::uint8_t b, g, r, a;
+	union Color {
+		struct { uint8_t b, g, r, a; };
+		uchar4 val;
 	};
 
 	Color *buf;
@@ -26,6 +28,18 @@ struct Fbuffer : public fb_var_screeninfo, public fb_fix_screeninfo {
     private:
 	int fd;
 };
+
+__host__ __device__
+uchar4 to_uchar4color(float3 c3)
+{
+	c3 = 255 * c3;
+	Fbuffer::Color rc;
+	rc.b = c3.x;
+	rc.g = c3.y;
+	rc.r = c3.z;
+	rc.a = 0;
+	return rc.val;
+}
 
 inline Fbuffer::Color *Fbuffer::operator[](std::uint32_t y)
 {

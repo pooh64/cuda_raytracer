@@ -4,6 +4,7 @@
 
 struct Ray {
 	float3 o, d;
+	__host__ __device__
 	float3 point_at(float t) const
 	{
 		return o + t * d;
@@ -17,13 +18,15 @@ struct HitRecord {
 };
 
 struct Shape {
+	__host__ __device__
 	virtual bool        hit(const Ray &ray, float tmin, float tmax,
-		HitRecord &rec) const =0;
+		HitRecord *rec) const =0;
+	__host__ __device__
 	virtual bool shadow_hit(const Ray &ray, float tmin, float tmax)
 				const =0;
 };
 
-struct Sphere final : public Shape {
+struct Sphere {
 	float3 o;
 	float  r;
 	float3 color;
@@ -43,17 +46,19 @@ struct Sphere final : public Shape {
 		if (t < tmin || t > tmax)		\
 			return false;
 
+	__host__ __device__
 	bool hit(const Ray &ray, float tmin, float tmax,
-		HitRecord &rec) const override
+		HitRecord *rec) const
 	{
 		__SPHERE_HIT_CODE
-		rec.t = t;
-		rec.n = normalize(ray.point_at(t) - o);
-		rec.color = color;
+		rec->t = t;
+		rec->n = normalize(ray.point_at(t) - o);
+		rec->color = color;
 		return true;
 	}
 
-	bool shadow_hit(const Ray &ray, float tmin, float tmax) const override
+	__host__ __device__
+	bool shadow_hit(const Ray &ray, float tmin, float tmax) const
 	{
 		__SPHERE_HIT_CODE
 		return true;

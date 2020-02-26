@@ -1,6 +1,7 @@
 #pragma once
 
 #include <iostream>
+#include <cfloat>
 #include <cuda_runtime.h>
 
 __host__ __device__ inline

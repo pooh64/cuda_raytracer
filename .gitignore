@@ -3,6 +3,7 @@
 !*.gitignore
 !*.c
 !*.cpp
+!*.cu
 !*.h
 !*.hpp
 !makefile

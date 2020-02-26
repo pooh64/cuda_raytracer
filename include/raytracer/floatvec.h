@@ -58,6 +58,12 @@ float3 clamp(float3 v)
 	return v;
 }
 
+__host__ __device__ inline
+float3 reflect(float3 v, float3 n)
+{
+	return v - 2.0f * dot(n, v) * n;
+}
+
 inline std::ostream &operator<<(std::ostream &os, const float3 &v)
 {
 	os << "(" << v.x << " " << v.y << " " << v.z << ")";

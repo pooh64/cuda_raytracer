@@ -10,7 +10,7 @@ CXX = nvcc
 #LDFLAGS = -pthread
 #DEPFLAGS = -MT $@ -MMD -MP -MF
 
-CPPFLAGS = -std=c++14 -I$(SELF_DIR)/include
+CPPFLAGS = -std=c++14 -I$(SELF_DIR)/include -lcurand
 # CPPFLAGS += -O0
 # CPPFLAGS += -mavx -Ofast -march=native -mtune=native -ftree-vectorize
 # CPPFLAGS += -frename-registers -funroll-loops -ffast-math -fno-signed-zeros -fno-trapping-math

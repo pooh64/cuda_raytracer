@@ -2,8 +2,7 @@
 
 #include <raytracer/geom.h>
 
-/*
- * fov - axis_y in rad
+/* fov - axis_y in rad
  * ratio = res_x/res_y */
 struct Camera {
 	float3 pos, dir, axis_x, axis_y;
@@ -29,7 +28,7 @@ struct Camera {
 	}
 
 	__host__ __device__
-	Ray cast(float x, float y)
+	Ray cast(float x, float y) const
 	{
 		return Ray { .o = pos,
 			     .d = x * axis_x + y * axis_y + dir };

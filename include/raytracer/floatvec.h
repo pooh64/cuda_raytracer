@@ -45,7 +45,7 @@ float3 cross(float3 a, float3 b)
 __host__ __device__ inline
 float3 normalize(float3 v)
 {
-	float inv_len = rsqrtf(dot(v, v));
+	float inv_len = rsqrt(dot(v, v));
 	return inv_len * v;
 }
 

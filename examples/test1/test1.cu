@@ -12,28 +12,61 @@
 #include <cassert>
 #include <cmath>
 
-//#define LAMBERT_MODE
+#include <signal.h>
 
+#define LAMBERT_MODE
+
+#if 0
 Sphere defined_spheres[] = {
-	{.o = { 0, 0, -1 },
+	{.o = { 0, 0.1, -1 },
 	 .r = 0.4,
-	 .color = { 0.5, 0.4, 0.9 }},
-	{.o = { 0.5, -0.5, -0.88 },
+	 .color = { 0.7, 0.6, 0.9 }},
+	{.o = { 0, 0.1, -0.7 },
+	 .r = 0.2,
+	 .color = { 0.7, 0.9, 0.9 }},
+	{.o = { 0.5, -0.4, -0.88 },
 	 .r = 0.3,
-	 .color = { 0.8, 0.4, 1.0 }},
-	{.o = { 0.6, 0, -0.6 },
+	 .color = { 0.8, 0.6, 1.0 }},
+	{.o = { 0.6, 0.1, -0.6 },
 	 .r = 0.25,
-	 .color = { 0.3, 1.0, 0.6 }},
-	{.o = { -1.5, -0.7, -1.7 },
+	 .color = { 0.6, 1.0, 0.8 }},
+	{.o = { -1.5, -0.6, -1.7 },
 	 .r = 0.6,
-	 .color = { 0.7, 0.8, 1.0 }},
-	{.o = { 0, -0.6, -0.7 },
+	 .color = { 0.9, 0.8, 1.0 }},
+	{.o = { 0, -0.5, -0.7 },
 	 .r = 0.08,
 	 .color = { 0.95, 0.95, 0.95 }},
-	{.o = { 0, -0.4, -0.5 },
+	{.o = { 0.05, -0.3, -0.5 },
+	 .r = 0.1,
+	 .color = { 0.95, 0.95, 0.95 }},
+	{.o = { 0.1, -0.3, -0.3 },
 	 .r = 0.1,
 	 .color = { 0.95, 0.95, 0.95 }},
 };
+#else
+Sphere defined_spheres[] = {
+	{.o = {0, 50, -1},
+	 .r = 50,
+	 .color = { 0.2, 0.7, 0.1 }},
+	{.o = {0, -0.2, -1},
+	 .r = 0.65,
+	 .color = { 0.3, 0.2, 0.9 }},
+};
+#endif
+
+
+void screenshot_handler(int sig)
+{
+	system("fbcat /dev/fb0 >shot.pnm");
+	exit(0);
+}
+
+void setup_screenshot(int sig)
+{
+	struct sigaction act;
+	act.sa_handler = &screenshot_handler;
+	sigaction(sig, &act, NULL);
+}
 
 struct Scene {
 	Camera cam;
@@ -75,10 +108,10 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene co
 	float2 const pix = 2.0f * float2{ float(idx % cbuf_w) / cbuf_w - 0.5f,
 					  float(idx / cbuf_w) / cbuf_h - 0.5f};
 
-	float3 light_dir = normalize(float3{ 1, 1, 1 });
-	float const light_dot_min = 0.8;
-	float3 color_light { 0.7, 1.0, 1.0 };
-	float3 color_sky = 0.3 * float3 { 0.72, 0.4, 0.3 };
+	float3 light_dir = normalize(float3{ 0, -0.2, -1 });
+	float const light_dot_min = 0.85;
+	float3 color_light { 1, 1, 1 };
+	float3 color_sky = 2 * float3 { 0.3, 0.1, 0.1 };
 
 	float3 sum_color = {0, 0, 0};
 	for (int i = 0; i < render_n_samples; ++i) {
@@ -98,10 +131,15 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene co
 #ifndef LAMBERT_MODE
 			ray.d = reflect(ray.d, hit.n);
 #else
+			float tmp = rsqrt(hit.n.x * hit.n.x + hit.n.y * hit.n.y);
+			float3 u = {hit.n.y * tmp, -hit.n.x * tmp, 0};
+			float3 v = cross(u, hit.n);
+
 			float a, b;
 			a = curand_uniform(my_rnd) * 2 * 3.1415;
 			b = asin(curand_uniform(my_rnd));
-			ray.d = float3 {sin(b) * sin(a), sin(b) * cos(a), cos(b)};
+			ray.d = float3 {cos(b) * sin(a), cos(b) * cos(a), sin(b)};
+			ray.d = ray.d.x * u + ray.d.y * v + ray.d.z * hit.n;
 #endif
 			if (count-- == 0) {
 				color_mp = { 0, 0, 1.0 };
@@ -134,6 +172,7 @@ int main()
 		std::cerr << "Can't open /dev/input/mice\n";
 		return 1;
 	}
+	setup_screenshot(SIGINT);
 
 	uchar4 *device_cbuf;
 	float3 *float_cbuf;
@@ -152,7 +191,7 @@ int main()
 	cudaMalloc(&scene_data.sph, sph_sz);
 	cudaMalloc(&scene_device, sizeof(scene_data));
 
-	scene_data.cam.set_screen(3.1415 / 6, float(fb.xres) / fb.yres);
+	scene_data.cam.set_screen(3.1415 / 4, float(fb.xres) / fb.yres);
 	//scene_data.cam.look_at({0, -0.1, 1}, {0, -0.1, -1}, {0, 1, 0});
 
 	setup_rnd_kernel<<<grid_dim, block_dim>>>(rnd_buf);
@@ -163,12 +202,12 @@ int main()
 	while (1) {
 		Mouse::Event ev;
 		if (ms.poll_ev(ev)) {
-			rot = rot + 0.01 * float2 { float(ev.dx), float(ev.dy) };
+			rot = rot + 0.01 * float2 { -float(ev.dx), float(ev.dy) };
 			s_collected = 0;
 		}
-		float3 const cam_at {0, -0.1, -1};
+		float3 const cam_at {0, 0, -1};
 		float3 const cam_up {0, 1, 0};
-		float3 cam_eye = float3 {sin(rot.x) * sin(rot.y), sin(rot.x) * cos(rot.y), cos(rot.x)};
+		float3 cam_eye = float3 {cos(rot.y) * sin(rot.x), sin(rot.y), cos(rot.y) * cos(rot.x)};
 		cam_eye = 2 * cam_eye + cam_at;
 		scene_data.cam.look_at(cam_eye, cam_at, cam_up);
 

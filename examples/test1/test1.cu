@@ -14,46 +14,95 @@
 
 #include <signal.h>
 
-#define LAMBERT_MODE
+#define SIMPLE_BLUR_NFRAMES 0
 
-#if 0
-Sphere defined_spheres[] = {
-	{.o = { 0, 0.1, -1 },
-	 .r = 0.4,
-	 .color = { 0.7, 0.6, 0.9 }},
-	{.o = { 0, 0.1, -0.7 },
-	 .r = 0.2,
-	 .color = { 0.7, 0.9, 0.9 }},
-	{.o = { 0.5, -0.4, -0.88 },
-	 .r = 0.3,
-	 .color = { 0.8, 0.6, 1.0 }},
-	{.o = { 0.6, 0.1, -0.6 },
-	 .r = 0.25,
-	 .color = { 0.6, 1.0, 0.8 }},
-	{.o = { -1.5, -0.6, -1.7 },
-	 .r = 0.6,
-	 .color = { 0.9, 0.8, 1.0 }},
-	{.o = { 0, -0.5, -0.7 },
-	 .r = 0.08,
-	 .color = { 0.95, 0.95, 0.95 }},
-	{.o = { 0.05, -0.3, -0.5 },
-	 .r = 0.1,
-	 .color = { 0.95, 0.95, 0.95 }},
-	{.o = { 0.1, -0.3, -0.3 },
-	 .r = 0.1,
-	 .color = { 0.95, 0.95, 0.95 }},
-};
-#else
-Sphere defined_spheres[] = {
-	{.o = {0, 50, -1},
-	 .r = 50,
-	 .color = { 0.2, 0.7, 0.1 }},
-	{.o = {0, -0.2, -1},
-	 .r = 0.65,
-	 .color = { 0.3, 0.2, 0.9 }},
-};
-#endif
+#define eps_translate 0.001
 
+#define __eval_device_fp(d_ptr)					\
+({	typeof(d_ptr) h_ptr;					\
+	cudaMemcpyFromSymbol(&h_ptr, d_ptr, sizeof(h_ptr));	\
+	h_ptr;							\
+})
+template <typename T>
+T eval_device_fp(T *d_ptr)
+{
+	return __eval_device_fp(*d_ptr);
+}
+
+/* material prototypes */
+typedef void (*surface_func_t)(float3 &d, float3 const &n, curandState_t *rnd);
+#define REGISTER_SURFACE(name)								\
+__device__ surface_func_t surface_##name##_dptr = __surface_##name;			\
+	   surface_func_t surface_##name##_hptr = eval_device_fp(&surface_##name##_dptr)
+
+__device__
+void __surface_lambert(float3 &d, float3 const &n, curandState_t *rnd)
+{
+	float tmp = rsqrt(n.x * n.x + n.y * n.y);
+	float3 u = {n.y * tmp, -n.x * tmp, 0};
+	float3 v = cross(u, n);
+
+	float a, b;
+	a = curand_uniform(rnd) * 2 * 3.1415;
+	b = asin(curand_uniform(rnd));
+	d = float3 {cos(b) * sin(a), cos(b) * cos(a), sin(b)};
+	d = d.x * u + d.y * v + d.z * n;
+}
+
+__device__
+void __surface_mirror(float3 &d, float3 const &n, curandState_t *rnd)
+{
+	d = reflect(d, n);
+}
+
+__device__
+void __surface_glass(float3 &d, float3 const &n, curandState_t *rnd)
+{
+	float nt = 1.3;
+
+	if (curand_uniform(rnd) < 0.1) {
+		d = reflect(d, n);
+		return;
+	}
+
+	float cos_val = dot(n, d);
+	if (cos_val < 0) {
+		float tmp = 1.0 / nt;
+		cos_val = -cos_val;
+		float root = 1.0 - (tmp * tmp) * (1.0 - cos_val * cos_val);
+		d = tmp * d + (tmp * cos_val - sqrtf(root)) * n;
+	} else {
+		float tmp = dot(d, n);
+		float root = 1.0 - (nt * nt) * (1.0 - tmp * tmp);
+		if (root < 0) {
+			d = reflect(d, n);
+			return;
+		}
+		d = nt * d - (nt * tmp - sqrt(root)) * n;
+	}
+}
+
+REGISTER_SURFACE(lambert);
+REGISTER_SURFACE(mirror);
+REGISTER_SURFACE(glass);
+
+struct ShaderObject {
+	surface_func_t surf;
+	Sphere sph;
+	float3 color;
+};
+
+ShaderObject defined_objects[] = {
+	{.surf = surface_lambert_hptr,
+	{.o = { 0, 0, -1 }, .r = 0.4},
+	 .color = { 0.3, 0.3, 0.9 }},
+	{.surf = surface_mirror_hptr,
+	{.o = { 0.85, 0, -1 }, .r = 0.4},
+	 .color = { 0.8, 0.8, 0.8 }},
+	{.surf = surface_glass_hptr,
+	{.o = { -0.85, 0, -1 }, .r = 0.4},
+	 .color = { 0.9, 0.9, 0.9 }},
+};
 
 void screenshot_handler(int sig)
 {
@@ -70,23 +119,31 @@ void setup_screenshot(int sig)
 
 struct Scene {
 	Camera cam;
-	Sphere *sph;
-	uint  n_sph;
+	ShaderObject *obj;
+	uint  n_obj;
 };
 
 __device__
-inline bool spheres_hit(Sphere const *arr, uint arr_sz, Ray const *ray, HitRecord *hit, uint *sph_id)
+inline bool spheres_hit(ShaderObject *arr, uint arr_sz, Ray const *ray, HitRecord *hit,
+	ShaderObject **obj)
 {
 	bool is_a_hit = false;
 	float tmax = FLT_MAX;
 	for (uint i = 0; i < arr_sz; ++i) {
-		if (i != *sph_id && arr[i].hit(*ray, 0, tmax, hit)) {
+		ShaderObject *ptr = &arr[i];
+		if (ptr->sph.hit(*ray, 0, tmax, hit)) {
 			is_a_hit = true;
 			tmax = hit->t;
-			*sph_id = i;
+			*obj = ptr;
 		}
 	}
 	return is_a_hit;
+}
+
+__device__
+inline float2 rand_uniform_float2(curandState_t *rnd)
+{
+	return float2 {curand_uniform(rnd), curand_uniform(rnd)};
 }
 
 __global__
@@ -100,7 +157,7 @@ void setup_rnd_kernel(curandState_t *rnd_buf)
 
 const uint render_n_samples = 1;
 __global__
-void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene const *scene,
+void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene *scene,
 	curandState_t *rnd_buf, uint s_collected)
 {
 	uint const idx = blockDim.x * blockIdx.x + threadIdx.x;
@@ -108,10 +165,10 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene co
 	float2 const pix = 2.0f * float2{ float(idx % cbuf_w) / cbuf_w - 0.5f,
 					  float(idx / cbuf_w) / cbuf_h - 0.5f};
 
-	float3 light_dir = normalize(float3{ 0, -0.2, -1 });
+	float3 light_dir = normalize(float3{ 0, -0.2, 1 });
 	float const light_dot_min = 0.85;
 	float3 color_light { 1, 1, 1 };
-	float3 color_sky = 2 * float3 { 0.3, 0.1, 0.1 };
+	float3 color_sky = 0.2 / 255.0 * float3 { 98.0, 24.0, 19.0 };
 
 	float3 sum_color = {0, 0, 0};
 	for (int i = 0; i < render_n_samples; ++i) {
@@ -124,23 +181,13 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene co
 		HitRecord hit;
 
 		int count = 100;
-		uint sph_id = scene->n_sph;
-		while (spheres_hit(scene->sph, scene->n_sph, &ray, &hit, &sph_id)) {
-			color_mp = color_mp * hit.color;
-			ray.o = ray.point_at(hit.t); //+ 0.001 * hit.n;
-#ifndef LAMBERT_MODE
-			ray.d = reflect(ray.d, hit.n);
-#else
-			float tmp = rsqrt(hit.n.x * hit.n.x + hit.n.y * hit.n.y);
-			float3 u = {hit.n.y * tmp, -hit.n.x * tmp, 0};
-			float3 v = cross(u, hit.n);
+		ShaderObject *obj = NULL;
+		while (spheres_hit(scene->obj, scene->n_obj, &ray, &hit, &obj)) {
+			color_mp = color_mp * obj->color;
+			ray.o = ray.point_at(hit.t);
+			obj->surf(ray.d, hit.n, my_rnd);
+			ray.o = ray.o + eps_translate * ray.d;
 
-			float a, b;
-			a = curand_uniform(my_rnd) * 2 * 3.1415;
-			b = asin(curand_uniform(my_rnd));
-			ray.d = float3 {cos(b) * sin(a), cos(b) * cos(a), sin(b)};
-			ray.d = ray.d.x * u + ray.d.y * v + ray.d.z * hit.n;
-#endif
 			if (count-- == 0) {
 				color_mp = { 0, 0, 1.0 };
 				break;
@@ -152,6 +199,9 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene co
 			color = color_mp * color_light;
 		else
 			color = color_mp * color_sky;
+
+		color = sqrt(saturate(color));
+
 		sum_color = sum_color + color;
 	}
 	sum_color = sum_color + float(s_collected) * float_cbuf[idx];
@@ -186,9 +236,9 @@ int main()
 	uint const grid_dim = cbuf_s / block_dim;
 
 	Scene scene_data, *scene_device;
-	scene_data.n_sph = sizeof(defined_spheres) / sizeof(*defined_spheres);
-	size_t sph_sz = sizeof(*scene_data.sph) * scene_data.n_sph;
-	cudaMalloc(&scene_data.sph, sph_sz);
+	scene_data.n_obj = sizeof(defined_objects) / sizeof(*defined_objects);
+	size_t obj_sz = sizeof(*scene_data.obj) * scene_data.n_obj;
+	cudaMalloc(&scene_data.obj, obj_sz);
 	cudaMalloc(&scene_device, sizeof(scene_data));
 
 	scene_data.cam.set_screen(3.1415 / 4, float(fb.xres) / fb.yres);
@@ -203,7 +253,7 @@ int main()
 		Mouse::Event ev;
 		if (ms.poll_ev(ev)) {
 			rot = rot + 0.01 * float2 { -float(ev.dx), float(ev.dy) };
-			s_collected = 0;
+			s_collected = SIMPLE_BLUR_NFRAMES;
 		}
 		float3 const cam_at {0, 0, -1};
 		float3 const cam_up {0, 1, 0};
@@ -211,7 +261,8 @@ int main()
 		cam_eye = 2 * cam_eye + cam_at;
 		scene_data.cam.look_at(cam_eye, cam_at, cam_up);
 
-		cudaMemcpy(scene_data.sph, defined_spheres, sph_sz, cudaMemcpyHostToDevice);
+		// REMOVE
+		cudaMemcpy(scene_data.obj, defined_objects, obj_sz, cudaMemcpyHostToDevice);
 		cudaMemcpy(scene_device, &scene_data, sizeof(scene_data), cudaMemcpyHostToDevice);
 
 		render<<<grid_dim, block_dim>>>(device_cbuf, float_cbuf, fb.xres, fb.yres, scene_device, rnd_buf, s_collected);

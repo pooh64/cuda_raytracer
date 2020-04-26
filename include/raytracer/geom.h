@@ -14,7 +14,6 @@ struct Ray {
 struct HitRecord {
 	float  t;
 	float3 n;
-	float3 color;
 };
 
 struct Shape {
@@ -29,7 +28,6 @@ struct Shape {
 struct Sphere {
 	float3 o;
 	float  r;
-	float3 color;
 
 #define __SPHERE_HIT_CODE				\
 		float3 tmp = ray.o - o;			\
@@ -53,7 +51,6 @@ struct Sphere {
 		__SPHERE_HIT_CODE
 		rec->t = t;
 		rec->n = normalize(ray.point_at(t) - o);
-		rec->color = color;
 		return true;
 	}
 

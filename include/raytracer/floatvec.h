@@ -109,11 +109,21 @@ float2 normalize(float2 v)
 	return inv_len * v;
 }
 
-__host__ __device__ inline
-float2 clamp(float2 v)
+__device__ inline
+float3 saturate(float3 v)
 {
-	v.x = (v.x > 1.0f) ? 1.0f : v.x;
-	v.y = (v.y > 1.0f) ? 1.0f : v.y;
+	v.x = __saturatef(v.x);
+	v.y = __saturatef(v.y);
+	v.z = __saturatef(v.z);
+	return v;
+}
+
+__host__ __device__ inline
+float3 sqrt(float3 v)
+{
+	v.x = sqrtf(v.x);
+	v.y = sqrtf(v.y);
+	v.z = sqrtf(v.z);
 	return v;
 }
 

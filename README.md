@@ -1,4 +1,6 @@
-examples/test1 reflections
-![test1png](test1.png)
-examples/test1 lambert
-![test1lambert](test1_lambert.png)
+examples/test1  
+![test1png](./pictures/test1.png)
+mirror material  
+![reflectionspng](./pictures/reflections.png)
+lambert material  
+![lambertpng](./pictures/lambert.png)

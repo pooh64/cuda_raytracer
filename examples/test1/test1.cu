@@ -96,12 +96,38 @@ ShaderObject defined_objects[] = {
 	{.surf = surface_lambert_hptr,
 	{.o = { 0, 0, -1 }, .r = 0.4},
 	 .color = { 0.3, 0.3, 0.9 }},
+
 	{.surf = surface_mirror_hptr,
 	{.o = { 0.85, 0, -1 }, .r = 0.4},
-	 .color = { 0.8, 0.8, 0.8 }},
+	 .color = { 1.0, 1.0, 1.0 }},
+
 	{.surf = surface_glass_hptr,
 	{.o = { -0.85, 0, -1 }, .r = 0.4},
+	 .color = { 0.4, 0.9, 0.9 }},
+
+	{.surf = surface_mirror_hptr,
+	{.o = { 0, 0.85, -1 }, .r = 0.4},
+	 .color = { 0.7, 0.6, 0.9 }},
+
+	{.surf = surface_glass_hptr,
+	{.o = { 0, -0.85, -1 }, .r = 0.4},
+	 .color = { 0.9, 0.5, 0.3 }},
+
+	{.surf = surface_lambert_hptr,
+	{.o = { 0.6, 0.6, -1 }, .r = 0.2},
 	 .color = { 0.9, 0.9, 0.9 }},
+
+	{.surf = surface_lambert_hptr,
+	{.o = { -0.6, 0.6, -1 }, .r = 0.2},
+	 .color = { 0.2, 0.2, 0.2 }},
+
+	{.surf = surface_lambert_hptr,
+	{.o = { -0.6, -0.6, -1 }, .r = 0.2},
+	 .color = { 0.4, 0.5, 0.9 }},
+
+	{.surf = surface_lambert_hptr,
+	{.o = { 0.6, -0.6, -1 }, .r = 0.2},
+	 .color = { 0.9, 0.5, 0.3 }},
 };
 
 void screenshot_handler(int sig)
@@ -146,6 +172,30 @@ inline float2 rand_uniform_float2(curandState_t *rnd)
 	return float2 {curand_uniform(rnd), curand_uniform(rnd)};
 }
 
+__device__
+inline float3 miss_shader(float3 &dir)
+{
+	float3 light_dir = normalize(float3{ 0, 0, 1 });
+	float light_dot_min = 0.90;
+	float3 color_light { 1, 1, 1 };
+	float3 color1 = 0.6 / 255.0 * float3 { 68.0, 24.0, 19.0 };
+	float3 color2 = 0.6 / 255.0 * float3 { 30.0, 80.0, 70.0 };
+	float period = M_PI / 2 / 12;
+	float rel_width = 0.1;
+
+	dir = normalize(dir);
+	if (dot(normalize(dir), light_dir) > light_dot_min)
+		return color_light;
+
+	float tmp_x = fabs(fmodf(atanf(dir.x / dir.z), period) / period);
+	float tmp_y = fabs(fmodf(asinf(dir.y), period) / period);
+	float tmp = fminf(tmp_x, tmp_y);
+	if (tmp < rel_width)
+		return color2;
+
+	return color1;
+}
+
 __global__
 void setup_rnd_kernel(curandState_t *rnd_buf)
 {
@@ -164,11 +214,6 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene *s
 	curandState_t *my_rnd = &rnd_buf[idx % blockDim.x];
 	float2 const pix = 2.0f * float2{ float(idx % cbuf_w) / cbuf_w - 0.5f,
 					  float(idx / cbuf_w) / cbuf_h - 0.5f};
-
-	float3 light_dir = normalize(float3{ 0, -0.2, 1 });
-	float const light_dot_min = 0.85;
-	float3 color_light { 1, 1, 1 };
-	float3 color_sky = 0.2 / 255.0 * float3 { 98.0, 24.0, 19.0 };
 
 	float3 sum_color = {0, 0, 0};
 	for (int i = 0; i < render_n_samples; ++i) {
@@ -194,14 +239,8 @@ void render(uchar4 *cbuf, float3 *float_cbuf, uint cbuf_w, uint cbuf_h, Scene *s
 			}
 		}
 
-		float3 color;
-		if (dot(normalize(ray.d), light_dir) > light_dot_min)
-			color = color_mp * color_light;
-		else
-			color = color_mp * color_sky;
-
+		float3 color = miss_shader(ray.d) * color_mp;
 		color = sqrt(saturate(color));
-
 		sum_color = sum_color + color;
 	}
 	sum_color = sum_color + float(s_collected) * float_cbuf[idx];
